@@ -1,0 +1,166 @@
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.umd.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<style>
+    #vesting-master { font-family: 'Inter', sans-serif; background: #fff; border: 1px solid #dee2e6; border-radius: 16px; padding: 25px; max-width: 450px; margin: auto; }
+    .admin-section { background: #fff9db; border: 1px dashed #fcc419; border-radius: 10px; padding: 15px; margin-top: 20px; display: none; }
+    .stat-box { background: #f8f9fa; border-radius: 12px; padding: 20px; margin-bottom: 15px; border: 1px solid #f1f3f5; }
+    .timer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
+    .timer-card { background: #fff; padding: 10px; border-radius: 8px; border: 1px solid #e9ecef; text-align: center; }
+    .timer-label { font-size: 0.65rem; font-weight: 700; color: #868e96; text-transform: uppercase; }
+    .timer-val { font-size: 0.9rem; font-weight: 700; color: #228be6; }
+    .btn-primary { background: #228be6; border: none; width: 100%; font-weight: 700; padding: 12px; border-radius: 8px; }
+    .progress { background-color: #e9ecef; border-radius: 50px; }
+</style>
+
+<div id="vesting-master">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h5 class="fw-bold m-0">Vesting Protocol</h5>
+        <button id="connectBtn" class="btn btn-dark btn-sm rounded-pill px-3">Connect</button>
+    </div>
+
+    <div id="connectionStatus" class="small text-muted mb-3 text-center">Please connect your wallet</div>
+
+    <div class="stat-box">
+        <div class="row text-center mb-3">
+            <div class="col-6">
+                <small class="text-muted d-block">Available Now</small>
+                <span id="claimable" class="h4 fw-bold">0.00</span>
+            </div>
+            <div class="col-6">
+                <small class="text-muted d-block">Total Locked</small>
+                <span id="total" class="h4 fw-bold">0.00</span>
+            </div>
+        </div>
+        
+        <div class="progress" style="height: 8px;">
+            <div id="pBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+        </div>
+
+        <div id="timers" class="timer-grid" style="display: none;">
+            <div class="timer-card">
+                <div class="timer-label">Cliff Unlock</div>
+                <div id="cliffCountdown" class="timer-val">--d --h</div>
+            </div>
+            <div class="timer-card">
+                <div class="timer-label">Full Release</div>
+                <div id="expiryCountdown" class="timer-val">--d --h</div>
+            </div>
+        </div>
+    </div>
+    
+    <button id="claimBtn" class="btn btn-primary mb-3" disabled>Claim Tokens</button>
+
+    <div id="adminPanel" class="admin-section">
+        <h6 class="fw-bold text-dark mb-3">Admin: Create Schedule</h6>
+        <input type="text" id="benAddr" class="form-control form-control-sm mb-2" placeholder="Beneficiary (0x...)">
+        <input type="number" id="tokenAmt" class="form-control form-control-sm mb-2" placeholder="Total Tokens">
+        <div class="row g-2 mb-3">
+            <div class="col"><input type="number" id="cliffMos" class="form-control form-control-sm" placeholder="Cliff (Mos)"></div>
+            <div class="col"><input type="number" id="durMos" class="form-control form-control-sm" placeholder="Duration (Mos)"></div>
+        </div>
+        <button id="createBtn" class="btn btn-warning btn-sm w-100 fw-bold">Initialize Vesting</button>
+    </div>
+    
+    <div id="statusMsg" class="mt-3 small text-center fw-medium"></div>
+</div>
+
+<script>
+const ADDR = "0x987Be7757F077D42F01C7735986c41Af07A1e19F";
+const ABI = [
+    "function owner() view returns (address)",
+    "function schedules(address) view returns (uint256 totalAmount, uint256 releasedAmount, uint256 start, uint256 cliff, uint256 duration)",
+    "function release() external",
+    "function createSchedule(address _beneficiary, uint256 _amount, uint256 _cliffMonths, uint256 _durationMonths) external"
+];
+
+let provider, signer, contract;
+
+async function connect() {
+    if (!window.ethereum) return alert("Install MetaMask");
+    provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    signer = await provider.getSigner();
+    const userAddr = await signer.getAddress();
+    contract = new ethers.Contract(ADDR, ABI, signer);
+    
+    document.getElementById('connectionStatus').innerHTML = `Connected: <b>${userAddr.substring(0,6)}...${userAddr.substring(38)}</b>`;
+    
+    try {
+        const owner = await contract.owner();
+        if(owner.toLowerCase() === userAddr.toLowerCase()) document.getElementById('adminPanel').style.display = 'block';
+    } catch(e) {}
+
+    loadVesting(userAddr);
+}
+
+function formatTime(diff) {
+    if (diff <= 0) return "REACHED";
+    const d = Math.floor(diff / 86400);
+    const h = Math.floor((diff % 86400) / 3600);
+    const m = Math.floor((diff % 3600) / 60);
+    return `${d}d ${h}h ${m}m`;
+}
+
+async function loadVesting(addr) {
+    const s = await contract.schedules(addr);
+    const total = parseFloat(ethers.formatUnits(s.totalAmount, 18));
+    const released = parseFloat(ethers.formatUnits(s.releasedAmount, 18));
+    const cliffDate = Number(s.cliff);
+    const endDate = Number(s.start) + Number(s.duration);
+
+    if (total > 0) {
+        document.getElementById('timers').style.display = 'grid';
+        
+        setInterval(() => {
+            const now = Math.floor(Date.now() / 1000);
+            
+            // Update Timers
+            document.getElementById('cliffCountdown').innerText = formatTime(cliffDate - now);
+            document.getElementById('expiryCountdown').innerText = formatTime(endDate - now);
+            
+            // Calculate Claimable
+            let vested = 0;
+            if (now >= cliffDate) {
+                vested = (total * (now - Number(s.start))) / Number(s.duration);
+                if (now >= endDate) vested = total;
+                document.getElementById('claimBtn').disabled = false;
+            } else {
+                document.getElementById('claimBtn').disabled = true;
+                document.getElementById('statusMsg').innerText = "Locked until Cliff Date";
+            }
+            
+            const claimable = Math.max(0, vested - released);
+            document.getElementById('claimable').innerText = claimable.toFixed(4);
+            document.getElementById('total').innerText = total.toFixed(2);
+            document.getElementById('pBar').style.width = ((vested/total)*100) + "%";
+        }, 1000);
+    } else {
+        document.getElementById('statusMsg').innerText = "No active vesting found for this address.";
+    }
+}
+
+document.getElementById('connectBtn').addEventListener('click', connect);
+document.getElementById('createBtn').addEventListener('click', async () => {
+    const msg = document.getElementById('statusMsg');
+    try {
+        const tx = await contract.createSchedule(
+            document.getElementById('benAddr').value, 
+            ethers.parseUnits(document.getElementById('tokenAmt').value, 18),
+            document.getElementById('cliffMos').value,
+            document.getElementById('durMos').value
+        );
+        msg.innerText = "Transaction sent...";
+        await tx.wait();
+        msg.innerText = "✅ Schedule Active!";
+    } catch (e) { msg.innerText = "Error: " + (e.reason || "Failed"); }
+});
+
+document.getElementById('claimBtn').addEventListener('click', async () => {
+    try {
+        const tx = await contract.release();
+        await tx.wait();
+        location.reload();
+    } catch (e) { alert("Claim failed"); }
+});
+</script>
