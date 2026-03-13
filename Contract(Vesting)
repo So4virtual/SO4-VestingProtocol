@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.33;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+contract TokenVesting is Ownable, ReentrancyGuard {
+    struct VestingSchedule {
+        uint256 totalAmount;
+        uint256 releasedAmount;
+        uint256 start;
+        uint256 cliff;
+        uint256 duration;
+    }
+
+    IERC20 public immutable token;
+    mapping(address => VestingSchedule) public schedules;
+
+    event Released(address indexed beneficiary, uint256 amount);
+
+    constructor(address _token) Ownable(msg.sender) {
+        token = IERC20(_token);
+    }
+
+    function createSchedule(address _ben, uint256 _amt, uint256 _cliffMonths, uint256 _durMonths) external onlyOwner {
+        schedules[_ben] = VestingSchedule({
+            totalAmount: _amt,
+            releasedAmount: 0,
+            start: block.timestamp,
+            cliff: block.timestamp + (_cliffMonths * 30 days),
+            duration: _durMonths * 30 days
+        });
+    }
+
+    function release() external nonReentrant {
+        VestingSchedule storage schedule = schedules[msg.sender];
+        require(block.timestamp >= schedule.cliff, "Cliff not reached");
+        uint256 vested = (schedule.totalAmount * (block.timestamp - schedule.start)) / schedule.duration;
+        if (block.timestamp >= schedule.start + schedule.duration) vested = schedule.totalAmount;
+        uint256 releasable = vested - schedule.releasedAmount;
+        schedule.releasedAmount += releasable;
+        token.transfer(msg.sender, releasable);
+        emit Released(msg.sender, releasable);
+    }
+}
