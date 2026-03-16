@@ -1,0 +1,159 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.33;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+contract VestingProtocol is ERC721, Ownable, ReentrancyGuard {
+
+    struct VestingSchedule {
+        uint256 totalAmount;
+        uint256 releasedAmount;
+        uint256 start;
+        uint256 cliff;
+        uint256 duration;
+        bool isActive;
+        uint256 nftId;
+    }
+
+    IERC20 public immutable token;
+
+    uint256 public nextNFT;
+
+    mapping(address => VestingSchedule) public schedules;
+
+    event ScheduleCreated(address indexed beneficiary, uint256 amount, uint256 nftId);
+    event Released(address indexed beneficiary, uint256 amount);
+    event ScheduleCancelled(address indexed beneficiary, uint256 refundedAmount);
+
+    constructor(address _token)
+        ERC721("Christnode Creator NFT", "CCNFT")
+        Ownable(msg.sender)
+    {
+        require(_token != address(0), "Invalid token");
+        token = IERC20(_token);
+    }
+
+    /**
+     * Create vesting schedule
+     * Tokens are automatically transferred into the contract and locked
+     */
+    function createSchedule(
+        address _ben,
+        uint256 _amt,
+        uint256 _cliffMonths,
+        uint256 _durMonths
+    ) external onlyOwner {
+
+        require(!schedules[_ben].isActive, "Schedule exists");
+        require(_ben != address(0), "Invalid beneficiary");
+        require(_amt > 0, "Amount must be >0");
+
+        // Transfer tokens from owner into contract
+        require(
+            token.transferFrom(msg.sender, address(this), _amt),
+            "Token transfer failed"
+        );
+
+        uint256 nftId = nextNFT;
+        nextNFT++;
+
+        // Mint Creator NFT
+        _safeMint(_ben, nftId);
+
+        schedules[_ben] = VestingSchedule({
+            totalAmount: _amt,
+            releasedAmount: 0,
+            start: block.timestamp,
+            cliff: block.timestamp + (_cliffMonths * 30 days),
+            duration: _durMonths * 30 days,
+            isActive: true,
+            nftId: nftId
+        });
+
+        emit ScheduleCreated(_ben, _amt, nftId);
+    }
+
+    /**
+     * Claim vested tokens
+     */
+    function release() external nonReentrant {
+
+        VestingSchedule storage schedule = schedules[msg.sender];
+
+        require(schedule.isActive, "No schedule");
+        require(block.timestamp >= schedule.cliff, "Cliff not reached");
+
+        uint256 vested = _calculateVestedAmount(schedule);
+        uint256 releasable = vested - schedule.releasedAmount;
+
+        require(releasable > 0, "Nothing to release");
+
+        schedule.releasedAmount += releasable;
+
+        require(
+            token.transfer(msg.sender, releasable),
+            "Transfer failed"
+        );
+
+        emit Released(msg.sender, releasable);
+    }
+
+    /**
+     * Cancel schedule
+     */
+    function cancelSchedule(address _ben) external onlyOwner {
+
+        VestingSchedule storage schedule = schedules[_ben];
+
+        require(schedule.isActive, "No schedule");
+
+        uint256 unreleased = schedule.totalAmount - schedule.releasedAmount;
+        uint256 nftId = schedule.nftId;
+
+        delete schedules[_ben];
+
+        // Burn NFT
+        _burn(nftId);
+
+        // Return remaining tokens to owner
+        token.transfer(owner(), unreleased);
+
+        emit ScheduleCancelled(_ben, unreleased);
+    }
+
+    /**
+     * View claimable tokens
+     */
+    function releasableAmount(address _ben) external view returns(uint256){
+
+        VestingSchedule memory schedule = schedules[_ben];
+
+        if(!schedule.isActive) return 0;
+        if(block.timestamp < schedule.cliff) return 0;
+
+        uint256 vested = _calculateVestedAmount(schedule);
+
+        return vested - schedule.releasedAmount;
+    }
+
+    /**
+     * Calculate vested tokens
+     */
+    function _calculateVestedAmount(VestingSchedule memory _schedule)
+        internal
+        view
+        returns(uint256)
+    {
+        if (block.timestamp >= _schedule.start + _schedule.duration) {
+            return _schedule.totalAmount;
+        } else {
+            return
+                (_schedule.totalAmount *
+                    (block.timestamp - _schedule.start)) /
+                _schedule.duration;
+        }
+    }
+}
