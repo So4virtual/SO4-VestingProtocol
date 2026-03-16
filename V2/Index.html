@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SO4T Creator Hub</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root { 
+            --primary: #0052ff; 
+            --secondary: #f0f7ff;
+            --accent: #FF007A; 
+            --green: #10b981;
+            --bg: #ffffff;
+            --card-bg: #f8fafc;
+            --border: #e2e8f0;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: var(--bg); 
+            background-image: radial-gradient(circle at 2px 2px, #f1f5f9 1px, transparent 0);
+            background-size: 32px 32px;
+            margin: 0; 
+            padding: 20px; 
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .hub-wrapper { 
+            max-width: 440px; 
+            width: 100%;
+            background: white; 
+            border-radius: 32px; 
+            box-shadow: 0 20px 40px rgba(0, 82, 255, 0.08); 
+            overflow: hidden; 
+            border: 1px solid var(--border); 
+        }
+        
+        .header-area { padding: 35px 24px 15px; text-align: center; }
+        .title { font-size: 26px; font-weight: 800; margin-bottom: 5px; color: var(--primary); letter-spacing: -1.5px; }
+        
+        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 24px; padding: 20px; margin: 0 20px 20px; position: relative; }
+        
+        .timer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
+        .timer-box { background: white; border: 1px solid var(--border); padding: 12px 5px; border-radius: 16px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        
+        .timer-val { font-family: 'Inter', monospace; font-size: 11px; font-weight: 800; color: var(--primary); display: block; letter-spacing: -0.5px; }
+        .timer-label { font-size: 8px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; margin-bottom: 4px; display: block; letter-spacing: 0.5px; }
+
+        .btn { width: 100%; padding: 16px; border-radius: 18px; border: none; font-weight: 800; cursor: pointer; transition: 0.3s; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
+        .btn-primary { background: var(--primary); color: white; box-shadow: 0 8px 16px rgba(0, 82, 255, 0.2); }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 20px rgba(0, 82, 255, 0.3); }
+        .btn-success { background: var(--green); color: white; box-shadow: 0 8px 16px rgba(16, 185, 129, 0.2); }
+        .btn:disabled { background: #e2e8f0; color: #94a3b8; cursor: not-allowed; box-shadow: none; transform: none; }
+
+        .progress-bg { background: #e2e8f0; height: 10px; border-radius: 10px; margin: 12px 0; overflow: hidden; }
+        .progress-fill { background: linear-gradient(90deg, var(--primary), #60a5fa); height: 100%; width: 0%; transition: 1.5s ease-out; }
+        
+        .stat-label { font-size: 9px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; letter-spacing: 1px; }
+        .stat-val { font-size: 18px; font-weight: 700; color: var(--primary); }
+
+        @keyframes pulse-white {
+            0% { box-shadow: 0 0 0 0px rgba(16, 185, 129, 0.4); }
+            100% { box-shadow: 0 0 0 15px rgba(16, 185, 129, 0); }
+        }
+        .pulse-active { animation: pulse-white 2s infinite; }
+
+        .status-bar { font-size: 11px; text-align: center; color: var(--text-muted); padding: 15px; background: var(--secondary); border-top: 1px solid var(--border); font-family: monospace; }
+        
+        .nft-tag { position: absolute; top: -10px; right: 20px; background: var(--primary); color: white; font-size: 9px; font-weight: 900; padding: 4px 12px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0, 82, 255, 0.2); }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div class="hub-wrapper">
+    <div class="header-area">
+        <div class="title">SO4 CREATOR HUB</div>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 25px; font-weight: 600;">Vesting Portfolio & Claims</p>
+        <button id="walletBtn" class="btn btn-primary" onclick="initWallet()">🔗 Connect Admin Wallet</button>
+    </div>
+
+    <div id="vestingDisplay" class="hidden">
+        <div class="card">
+            <div id="nftIdDisplay" class="nft-tag">NFT #--</div>
+            <div style="display:flex; justify-content:space-between; font-size:10px; font-weight:800; margin-bottom: 5px;">
+                <span style="color: var(--text-muted);">VESTING PROGRESS</span>
+                <span id="percentLabel" style="color: var(--primary);">0%</span>
+            </div>
+            <div class="progress-bg"><div id="progressFill" class="progress-fill"></div></div>
+            
+            <div class="timer-grid">
+                <div class="timer-box">
+                    <span class="timer-label">365-Day Cliff</span>
+                    <span id="cliffTimer" class="timer-val">00d 00h 00m 00s</span>
+                </div>
+                <div class="timer-box">
+                    <span class="timer-label">1460-Day Expiry</span>
+                    <span id="expiryTimer" class="timer-val">00d 00h 00m 00s</span>
+                </div>
+            </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 20px;">
+            <div class="card" style="margin:0; text-align:center;">
+                <div class="stat-label">Allocated</div>
+                <div id="statTotal" class="stat-val">0.00</div>
+            </div>
+            <div class="card" style="margin:0; text-align:center;">
+                <div class="stat-label">Released</div>
+                <div id="statClaimed" class="stat-val" style="color: var(--text-muted);">0.00</div>
+            </div>
+        </div>
+
+        <div class="card" style="text-align:center; margin-top: 20px; background: #f0fdf4; border: 1px solid #dcfce7;">
+            <div class="stat-label">Claimable Balance</div>
+            <div id="statVested" style="font-size:36px; font-weight:900; color: var(--text-main); margin: 5px 0;">0.00</div>
+            <button id="claimBtn" class="btn btn-success" disabled onclick="handleClaim()">Withdraw SO4T</button>
+        </div>
+    </div>
+
+    <div id="noAllocation" class="hidden p-12 text-center text-slate-400 italic font-medium">
+        No vesting schedule linked to this account.
+    </div>
+
+    <div id="addrDisplay" class="status-bar hidden">
+        ACCOUNT: <span id="userAddr" style="color: var(--primary); font-weight: 800;">0x...</span>
+    </div>
+</div>
+
+<script>
+const VEST_ADDR = "0xbfe4bec0035b5e6c5dd0492be68c2b6cfd5d6843";
+const VEST_ABI = [
+    "function release() external",
+    "function schedules(address) view returns (uint256 totalAmount, uint256 releasedAmount, uint256 start, uint256 cliff, uint256 duration, bool isActive, uint256 nftId)",
+    "function releasableAmount(address _ben) view returns (uint256)"
+];
+const BASE_ID = "0x2105";
+
+let countdownInterval = null;
+
+async function initWallet() {
+    if (!window.ethereum) return alert("MetaMask not found.");
+    try {
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const { chainId } = await provider.getNetwork();
+        if (chainId !== 8453) {
+            await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: BASE_ID }] });
+        }
+        const accounts = await provider.send("eth_requestAccounts", []);
+        
+        document.getElementById('walletBtn').classList.add('hidden');
+        document.getElementById('addrDisplay').classList.remove('hidden');
+        document.getElementById('userAddr').innerText = accounts[0].substring(0,6) + "..." + accounts[0].slice(-4);
+        
+        loadVestingData(accounts[0], provider);
+    } catch (e) { console.error(e); }
+}
+
+async function loadVestingData(addr, provider) {
+    try {
+        const vest = new ethers.Contract(VEST_ADDR, VEST_ABI, provider);
+        const s = await vest.schedules(addr);
+        const r = await vest.releasableAmount(addr);
+
+        if (!s.isActive) {
+            document.getElementById('noAllocation').classList.remove('hidden');
+            return;
+        }
+
+        document.getElementById('vestingDisplay').classList.remove('hidden');
+        document.getElementById('nftIdDisplay').innerText = `NFT #${s.nftId}`;
+        
+        const total = parseFloat(ethers.utils.formatUnits(s.totalAmount, 18));
+        const claimed = parseFloat(ethers.utils.formatUnits(s.releasedAmount, 18));
+        const available = parseFloat(ethers.utils.formatUnits(r, 18));
+
+        document.getElementById('statTotal').innerText = total.toLocaleString();
+        document.getElementById('statClaimed').innerText = claimed.toLocaleString();
+        document.getElementById('statVested').innerText = available.toLocaleString(undefined, {minimumFractionDigits: 2});
+
+        if (available > 0) {
+            document.getElementById('claimBtn').disabled = false;
+            document.getElementById('claimBtn').classList.add('pulse-active');
+        }
+
+        const start = s.start.toNumber();
+        const cliffDate = start + (365 * 24 * 3600);
+        const expiryDate = start + (1460 * 24 * 3600);
+
+        if(countdownInterval) clearInterval(countdownInterval);
+        countdownInterval = setInterval(() => {
+            const now = Math.floor(Date.now() / 1000);
+            
+            document.getElementById('cliffTimer').innerText = formatTime(cliffDate - now);
+            document.getElementById('expiryTimer').innerText = formatTime(expiryDate - now);
+            
+            let prog = ((now - start) / (expiryDate - start)) * 100;
+            prog = Math.min(Math.max(prog, 0), 100);
+            document.getElementById('progressFill').style.width = prog + "%";
+            document.getElementById('percentLabel').innerText = Math.round(prog) + "%";
+        }, 1000);
+
+    } catch (e) { console.error(e); }
+}
+
+function formatTime(s) {
+    if (s <= 0) return "UNLOCKED";
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600).toString().padStart(2, '0');
+    const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
+    const sec = (s % 60).toString().padStart(2, '0');
+    return `${d}d ${h}h ${m}m ${sec}s`;
+}
+
+async function handleClaim() {
+    try {
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const vest = new ethers.Contract(VEST_ADDR, VEST_ABI, provider.getSigner());
+        const tx = await vest.release();
+        document.getElementById('claimBtn').innerText = "CONFIRMING...";
+        await tx.wait();
+        alert("Success! SO4T has been sent to your wallet.");
+        window.location.reload();
+    } catch (e) { 
+        alert("Claim unsuccessful.");
+        document.getElementById('claimBtn').innerText = "Withdraw SO4T";
+    }
+}
+</script>
+</body>
+</html>
